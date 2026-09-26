@@ -6,9 +6,6 @@
   const sb = cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey) : null;
   const SAVE_KEY = 'alavanca-save-v1';   // a mesma chave que o jogo usa
   const OWNER_KEY = 'increase-owner';    // de quem é o jogo gravado neste browser
-  // Temporada: para recomeçar o jogo de todos, muda esta data. Jogos gravados antes dela são ignorados
-  // (no aparelho e na nuvem) e o ranking só mostra jogos desta temporada.
-  const SEASON = '2026-09-26T21:21:14Z', SEASON_KEY = 'increase-season';
   let user = null, username = '', timer = null, startGame = null, started = false;
 
   /* ---------- Estilos do ecrã de entrada, do ranking e do topo ---------- */
@@ -42,7 +39,6 @@
   /* ---------- Arranque ---------- */
   window.IncreaseBoot = async function(start){
     startGame = start;
-    try{ if(localStorage.getItem(SEASON_KEY) !== SEASON){ localStorage.removeItem(SAVE_KEY); localStorage.setItem(SEASON_KEY, SEASON); } }catch(e){}
     if(!sb){ run(); return; }                       // sem Supabase configurado: joga sem contas
     const { data } = await sb.auth.getSession();
     if(data.session) await enter(data.session.user);
@@ -61,11 +57,12 @@
     let local = null; try{ local = JSON.parse(localStorage.getItem(SAVE_KEY)); }catch(e){}
     const mine = localStorage.getItem(OWNER_KEY) === u.id;
     try{
-      if(row.data && row.data.data && Date.parse(row.data.updated_at) >= Date.parse(SEASON)){
+      if(row.data && row.data.data){
         const localNewer = mine && local && (local.seen || 0) > Date.parse(row.data.updated_at);
         if(!localNewer) localStorage.setItem(SAVE_KEY, JSON.stringify(row.data.data));
-      } else if(!mine){
-        localStorage.removeItem(SAVE_KEY);           // conta nova: não herda o jogo de outra pessoa neste aparelho
+      } else if(!row.error){
+        // Sem jogo na base de dados: começa do zero (conta nova, ou jogo apagado na base de dados)
+        localStorage.removeItem(SAVE_KEY);
       }
       localStorage.setItem(OWNER_KEY, u.id);
     }catch(e){}
@@ -106,7 +103,7 @@
     document.body.appendChild(back);
     back.addEventListener('click', e=>{ if(e.target === back || e.target.closest('[data-x]')) back.remove(); });
     await upload();
-    const { data, error } = await sb.from('scores').select('user_id, username, net_worth, title, day, city').gte('updated_at', SEASON).order('net_worth', {ascending:false}).limit(50);
+    const { data, error } = await sb.from('scores').select('user_id, username, net_worth, title, day, city').order('net_worth', {ascending:false}).limit(50);
     const box = back.querySelector('.rank');
     if(error){ box.querySelector('.note').textContent = 'Não foi possível carregar o ranking. Verifica a ligação.'; return; }
     box.querySelector('.note').outerHTML = `<table><thead><tr><th>#</th><th>Jogador</th><th style="text-align:right">Património</th><th>Estatuto</th><th style="text-align:right">Dias</th></tr></thead><tbody>${
