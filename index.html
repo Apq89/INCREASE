@@ -829,7 +829,7 @@ const HELP = {
 /* =========================================================
    ESTADO
    ========================================================= */
-let S, ui = {amort:{}, amortMode:{}, carTerm:72, craftq:'', mortTerm:360, cityq:'', citySort:'name', carq:'', carBrand:'', carFuel:'', carSort:'asc', carN:24, usedFuel:'', luxf:'carro', tab:'inicio', sel:'pessoal', amount:5000, term:24, stamp:null, confirm:null, bizf:'todos', mkt:'s', q:'', sheet:null, buyAmt:1000, range:30};
+let S, ui = {contract:'efetivo', amort:{}, amortMode:{}, carTerm:72, craftq:'', mortTerm:360, cityq:'', citySort:'name', carq:'', carBrand:'', carFuel:'', carSort:'asc', carN:24, usedFuel:'', luxf:'carro', tab:'inicio', sel:'pessoal', amount:5000, term:24, stamp:null, confirm:null, bizf:'todos', mkt:'s', q:'', sheet:null, buyAmt:1000, range:30};
 let dirty = true, lastRender = 0;
 const SAVE_KEY = 'alavanca-save-v1';
 
@@ -867,7 +867,7 @@ function migrate(s){
   (s.props||[]).forEach(p=>{ if(p.id==='ilha' && !(CITY_FEAT[p.city]||'').includes('i')) p.city = 'miami'; });
   if(!CITY_BY[s.city] || CITY_BY[s.city].country!=='Portugal') s.city = 'lisboa';
   if(!CITY_BY[s.browse] || CITY_BY[s.browse].country!=='Portugal') s.browse = s.city; if(!CITY_BY[s.browse]) s.browse = s.city;
-  for(const id in s.biz){ s.biz[id].staff = s.biz[id].staff || []; s.biz[id].staff.forEach(e=>{ if(e.sal < MIN_WAGE) e.sal = MIN_WAGE; if(e.raise && e.raise < MIN_WAGE) e.raise = MIN_WAGE; }); }
+  for(const id in s.biz){ s.biz[id].staff = s.biz[id].staff || []; s.biz[id].staff.forEach(e=>{ if(!e.contract) e.contract = 'efetivo'; if(e.sal < MIN_WAGE) e.sal = MIN_WAGE; if(e.raise && e.raise < MIN_WAGE) e.raise = MIN_WAGE; }); }
   if(s.hire) s.hire.list.forEach(c=>{ if(c.sal < MIN_WAGE) c.sal = MIN_WAGE; });
   s.veh = s.veh || [];
   s.cars = s.cars || [];
@@ -915,7 +915,10 @@ function hashStr(s){ let h=7; for(const ch of s) h = (h*31 + ch.charCodeAt(0)) |
    ========================================================= */
 function boost(sector){ const b = S.boosts[sector]; return b && b.until > S.day ? b.mult : 1; }
 // Faturação bruta: o lucro base do negócio mais o que paga ao pessoal, multiplicado pela produtividade da equipa
-function staffRatio(id){ const o = S.biz[id]; let p = S.workAt===id ? 1 : 0; for(const e of o.staff) p += SKILL[e.skill].p; return Math.min(1.25, p/BIZ_BY[id].slots); }
+// Meses de casa e produtividade: +0,5% por mês de experiência, até +20%
+function monthsIn(e){ return Math.max(0, Math.floor((S.day - (e.since ?? S.day))/30)); }
+function empProd(e){ return SKILL[e.skill].p*(1 + Math.min(0.2, monthsIn(e)*0.005)); }
+function staffRatio(id){ const o = S.biz[id]; let p = S.workAt===id ? 1 : 0; for(const e of o.staff) p += empProd(e); return Math.min(1.3, p/BIZ_BY[id].slots); }
 function openSlots(id){ return BIZ_BY[id].slots - S.biz[id].staff.length - (S.workAt===id ? 1 : 0); }
 // Cada pessoa a trabalhar fatura 1,5 vezes o salário da profissão; tu faturas pelo menos 1,3 salários médios da cidade.
 // O resto (b.day) é o lucro do espaço e do equipamento, que só aparece com o negócio aberto.
@@ -927,7 +930,7 @@ function roleSalAt(b, city){ return Math.max(MIN_WAGE, ROLES[b.role].s*salIdx(ci
 function bizDaily(id){
   const o = S.biz[id], b = BIZ_BY[id], city = o.city||'lisboa', rs = roleSalAt(b, city);
   let work = 0;
-  for(const e of o.staff) work += SKILL[e.skill].p*rs*LABOR;
+  for(const e of o.staff) work += empProd(e)*rs*LABOR;
   if(S.workAt===id) work += ownerPayFor(b, city)*ownerExp(o);
   const base = b.day*(1 + 0.7*(o.lvl-1))*CITY_BY[city].col*30*staffRatio(id);
   return (base + work)/30 * S.market * boost(b.sector) * prestigeMult();
@@ -1357,20 +1360,43 @@ function hireDay(){
   if(h.list.length < 24 && Math.random() < 0.5) h.list.push(newCandidate());
   for(const k of new Set(neededRoles())){ const [r, c] = k.split('@'); if(h.list.filter(x=>x.role===r && x.city===c).length < 2 && Math.random() < 0.3) h.list.push(newCandidate(r, c)); }
 }
-function hire(cuid, bizId){
+const CONTRACTS = {efetivo:'Efetivo', termo6:'A termo · 6 meses', termo12:'A termo · 12 meses'};
+function contractLabel(e){ return e.contract==='termo' ? `A termo · acaba ${e.end - S.day <= 0 ? 'hoje' : 'daqui a ' + Math.ceil((e.end - S.day)/30) + ' meses'}` : 'Efetivo'; }
+// Indemnização: efetivo 14 dias de salário por ano de casa (mínimo 1 mês); a termo, os salários até ao fim do contrato
+function firingCost(e){
+  if(e.contract==='termo') return e.sal*Math.max(1, Math.ceil((e.end - S.day)/30));
+  return Math.max(e.sal, e.sal*14/30*(monthsIn(e)/12));
+}
+// Compensação por não renovar um contrato a termo: 24 dias por ano trabalhado
+function endCost(e){ return e.sal*24/30*(monthsIn(e)/12); }
+function hire(cuid, bizId, kind='efetivo'){
   const h = hireMk(), c = h.list.find(x=>x.uid===cuid);
   if(!c || !S.biz[bizId] || BIZ_BY[bizId].role!==c.role || c.city!==(S.biz[bizId].city||'lisboa') || openSlots(bizId)<=0) return;
-  S.biz[bizId].staff.push({uid:c.uid, name:c.name, skill:c.skill, sal:c.sal, since:S.day, xp:0});
+  if(kind!=='efetivo' && c.skill >= 4){ toast(`${c.name} só aceita contrato efetivo: com ${c.skill} estrelas tem outras propostas.`, 'bad', '📝'); return; }
+  const termo = kind!=='efetivo', months = kind==='termo6' ? 6 : 12;
+  S.biz[bizId].staff.push({uid:c.uid, name:c.name, skill:c.skill, sal:c.sal, since:S.day, xp:0, contract:termo ? 'termo' : 'efetivo', end:termo ? S.day + months*30 : null, months, renew:0});
   h.list = h.list.filter(x=>x!==c);
-  log(`Contratação: ${c.name}, ${ROLES[c.role].n} no ${BIZ_BY[bizId].name} em ${CITY_BY[c.city].name} (${eur(c.sal)}/mês)`);
+  log(`Contratação: ${c.name}, ${ROLES[c.role].n} no ${BIZ_BY[bizId].name} em ${CITY_BY[c.city].name} (${eur(c.sal)}/mês, ${CONTRACTS[kind]})`);
   toast(`${c.name} começa amanhã no ${BIZ_BY[bizId].name}.`, 'good', '🤝');
   if(openSlots(bizId)<=0) ui.hireFor = null;
 }
 function fire(bizId, euid){
   const o = S.biz[bizId]; if(!o) return;
   const e = o.staff.find(x=>x.uid===euid); if(!e) return;
-  o.staff = o.staff.filter(x=>x!==e); S.cash -= e.sal;
-  log(`Despedimento: ${e.name} no ${BIZ_BY[bizId].name} (indemnização de um mês)`, -e.sal);
+  const cost = firingCost(e);
+  o.staff = o.staff.filter(x=>x!==e); S.cash -= cost;
+  log(`Despedimento: ${e.name} no ${BIZ_BY[bizId].name} (${e.contract==='termo' ? 'salários até ao fim do contrato' : `indemnização por ${monthsTxt(monthsIn(e)).replace('há ', '')} de casa`})`, -cost);
+}
+function makePermanent(bizId, euid){
+  const e = S.biz[bizId]?.staff.find(x=>x.uid===euid); if(!e || e.contract!=='termo') return;
+  e.contract = 'efetivo'; e.end = null; e.noRenew = false;
+  log(`${e.name} passou a efetivo no ${BIZ_BY[bizId].name}`);
+  toast(`${e.name} passou a efetivo e ficou mais motivado.`, 'good', '📝');
+}
+function toggleRenew(bizId, euid){
+  const e = S.biz[bizId]?.staff.find(x=>x.uid===euid); if(!e || e.contract!=='termo') return;
+  e.noRenew = !e.noRenew;
+  toast(e.noRenew ? `O contrato de ${e.name} não vai ser renovado. No fim pagas a compensação de ${eur(endCost(e))}.` : `O contrato de ${e.name} vai ser renovado.`, '', '📝');
 }
 function workHere(id){
   if(!S.biz[id]) return;
@@ -1876,6 +1902,15 @@ function monthEnd(){
     if(S.workAt===id) o.oxp = (o.oxp||0) + 1;
     for(const e of [...o.staff]){
       e.xp = (e.xp||0) + 1;
+      // Aumento por antiguidade: +3% a cada ano de casa
+      const m = monthsIn(e);
+      if(m > 0 && m % 12 === 0 && e.lastSen !== m){ e.lastSen = m; const before = e.sal; e.sal = wage(e.sal*1.03); log(`${e.name} faz ${m/12} ${m===12 ? 'ano' : 'anos'} no ${BIZ_BY[id].name}: aumento por antiguidade de ${eur(before)} para ${eur(e.sal)}.`); }
+      // Fim de contrato a termo: não renovar, renovar (até 3 contratos) ou passa a efetivo
+      if(e.contract==='termo' && S.day >= e.end){
+        if(e.noRenew){ const c = endCost(e); o.staff = o.staff.filter(x=>x!==e); S.cash -= c; log(`O contrato de ${e.name} no ${BIZ_BY[id].name} terminou. Compensação de fim de contrato.`, -c, 'bad'); continue; }
+        if((e.renew||0) < 2){ e.renew = (e.renew||0) + 1; e.end = S.day + (e.months||12)*30; log(`Contrato de ${e.name} renovado por mais ${e.months||12} meses (renovação ${e.renew} de 2).`); }
+        else { e.contract = 'efetivo'; e.end = null; log(`${e.name} passou a efetivo no ${BIZ_BY[id].name}: chegou ao limite de renovações do contrato a termo.`, null, 'good evt'); }
+      }
       // Com a experiência, sobem de nível (mais produtividade) e pedem aumento
       if(e.skill < 5 && e.xp >= 6 && Math.random() < 1/(6 + 6*e.skill)){
         e.skill++; e.xp = 0;
@@ -1883,7 +1918,7 @@ function monthEnd(){
         if(fair > e.sal){ e.raise = fair; e.raiseSince = S.day; }
         log(`${e.name} ganhou experiência no ${BIZ_BY[id].name}: agora ${e.skill} estrelas (produtividade ${pct(SKILL[e.skill].p*100,0)}).${e.raise ? ` Pede aumento para ${eur(e.raise)}.` : ''}`, null, 'good evt');
       }
-      const quit = e.raise && S.day - e.raiseSince > 45 ? 0.2 : e.refused ? 0.06*e.refused : 0.015;
+      const quit = e.raise && S.day - e.raiseSince > 45 ? 0.2 : e.refused ? 0.06*e.refused : e.contract==='termo' ? 0.025 : 0.01;
       if(Math.random() < quit){
         o.staff = o.staff.filter(x=>x!==e);
         log(`${e.name} saiu do ${BIZ_BY[id].name}: ${e.raise || e.refused ? 'foi para a concorrência por um salário melhor' : 'recebeu uma proposta melhor'}. Contrata alguém para a vaga.`, null, 'bad');
@@ -2460,7 +2495,8 @@ function staffBlock(id){
   const b = BIZ_BY[id], o = S.biz[id], rows = [], open = openSlots(id), r = staffRatio(id);
   if(S.workAt===id) rows.push(`<div class="emp"><span class="av me">Tu</span><span class="nm2"><strong>Tu</strong><span class="note">Trabalhas aqui · deixaste o emprego de ${eur(jobSalary())} · experiência +${pct((ownerExp(o)-1)*100,0)}</span></span><button class="btn" data-work="${id}">Voltar ao emprego</button></div>`);
   o.staff.forEach(e=>{
-    rows.push(`<div class="emp"><span class="av" style="background:${avCol(e.name)}">${initials(e.name)}</span><span class="nm2"><strong>${e.name}</strong><span class="note">${stars(e.skill)} · ${pct(SKILL[e.skill].p*100,0)} · ${eur(e.sal)}/mês · ${monthsTxt(Math.floor((S.day-(e.since||S.day))/30))}${e.refused ? ' · 😠 descontente' : ''}</span></span>${btnConfirm('fe:'+id+':'+e.uid, 'Despedir', 'danger')}</div>`);
+    rows.push(`<div class="emp"><span class="av" style="background:${avCol(e.name)}">${initials(e.name)}</span><span class="nm2"><strong>${e.name}</strong><span class="note">${stars(e.skill)} · ${pct(empProd(e)*100,0)} · ${eur(e.sal)}/mês · ${monthsTxt(monthsIn(e))}<br>📝 ${contractLabel(e)}${e.contract==='termo' && e.noRenew ? ' · não renova' : ''}${e.refused ? ' · 😠 descontente' : ''}</span></span>${btnConfirm('fe:'+id+':'+e.uid, `Despedir · ${eurC(firingCost(e))}`, 'danger')}</div>`);
+    if(e.contract==='termo') rows.push(`<div class="quick" style="margin:-2px 0 4px 40px"><button data-perm="${id}|${e.uid}">📝 Passar a efetivo</button><button data-norenew="${id}|${e.uid}">${e.noRenew ? '↩ Afinal renovar' : `✋ Não renovar · ${eurC(endCost(e))}`}</button></div>`);
     if(e.raise) rows.push(`<div class="plain" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">💬 ${e.name.split(' ')[0]} subiu para ${e.skill}★ e pede ${eur(e.raise)}/mês (+${eur(e.raise-e.sal)}). Sem resposta, pode sair.
       <span style="display:flex;gap:6px;margin-left:auto"><button class="btn primary" data-raise="${id}|${e.uid}">Dar aumento</button><button class="btn" data-noraise="${id}|${e.uid}">Recusar</button></span></div>`);
   });
@@ -2487,7 +2523,7 @@ function vRecrutar(){
       <div class="emp"><span class="av" style="width:46px;height:46px;font-size:15px;background:${avCol(c.name)}">${initials(c.name)}</span><span class="nm2"><strong style="font-size:16px">${c.name}</strong><span class="note">${c.age} anos · ${ROLES[c.role].n} · ${cityName(c.city)}</span></span></div>
       <dl class="kv"><dt>Competência</dt><dd>${stars(c.skill)}</dd><dt>Produtividade</dt><dd>${pct(SKILL[c.skill].p*100,0)}</dd><dt>Salário pedido</dt><dd>${eur(c.sal)}/mês</dd><dt>Disponível</dt><dd>${left<=1 ? 'só até amanhã' : 'mais ' + left + ' dias'}</dd></dl>
       <p class="note">“${c.trait}”</p>
-      <div class="acts" style="flex-direction:column">${bizs.length ? bizs.map(id=>`<button class="btn primary" data-hire="${c.uid}" data-biz="${id}">Contratar para ${bizLabel(id)}</button>`).join('') : `<span class="lock">Não tens nenhum negócio em ${CITY_BY[c.city].name} com vaga para ${ROLES[c.role].n.toLowerCase()}.</span>`}</div>
+      <div class="acts" style="flex-direction:column">${bizs.length ? bizs.map(id=>`<button class="btn primary" data-hire="${c.uid}" data-biz="${id}" data-kind="${c.skill >= 4 ? 'efetivo' : ui.contract}">Contratar para ${bizLabel(id)} · ${c.skill >= 4 ? 'Efetivo' : CONTRACTS[ui.contract]}</button>`).join('') : `<span class="lock">Não tens nenhum negócio em ${CITY_BY[c.city].name} com vaga para ${ROLES[c.role].n.toLowerCase()}.</span>`}</div>
     </div></article>`;
   }).join('');
   return `<section class="card">
@@ -2495,6 +2531,8 @@ function vRecrutar(){
       <p class="note">${target ? `A procurar ${ROLES[BIZ_BY[target].role].n.toLowerCase()} para o ${BIZ_BY[target].name} (${openSlots(target)} ${openSlots(target)>1 ? 'vagas' : 'vaga'}).` : 'Cada negócio precisa de pessoal para abrir. Só podes trabalhar tu num negócio a até 100 km de onde vives, e para isso deixas o emprego; nos outros tens de contratar.'} Os salários seguem a média de cada cidade. Os melhores funcionários produzem mais, mas pedem mais. Com a experiência sobem de estrelas e pedem aumento. Aparecem candidatos novos todos os dias.</p>
       ${!S.workAt ? (()=>{ const mine = Object.keys(S.biz).filter(id=>openSlots(id)>0 && nearHome(S.biz[id].city||'lisboa'));
         return mine.length ? `<div class="emp" style="padding:10px;border:1px dashed var(--line);border-radius:10px"><span class="av me">Tu</span><span class="nm2"><strong>Ocupar eu uma vaga</strong><span class="note">Deixas o emprego de ${eur(jobSalary())} e trabalhas no teu negócio</span></span></div><div class="quick">${mine.map(id=>`<button data-work="${id}">🙋 ${bizLabel(id)} · ≈ ${eur(profitIfIWork(id))}/mês</button>`).join('')}</div>` : ''; })() : `<p class="note">Trabalhas em: <strong>${workLabel()}</strong>.</p>`}
+      <div class="row" style="justify-content:flex-start;flex-wrap:wrap;gap:8px;align-items:center"><span class="eyebrow">Tipo de contrato</span><div class="seg" role="group" aria-label="Tipo de contrato">${Object.entries(CONTRACTS).map(([k,l])=>`<button data-contract="${k}" aria-pressed="${ui.contract===k}">${l}</button>`).join('')}</div></div>
+      <p class="note">Efetivo: fica mais tempo, mas despedir custa 14 dias de salário por ano de casa (mínimo 1 mês). A termo: pode renovar-se até 2 vezes e depois passa a efetivo; despedir antes do fim obriga a pagar os salários em falta, e não renovar custa 24 dias por ano. Quem tem 4★ ou 5★ só aceita ser efetivo.</p>
       ${need.length ? `<p class="note">Vagas abertas: <strong>${need.map(k=>{ const [r,c] = k.split('@'); return ROLES[r].n + ' em ' + CITY_BY[c].name; }).join(', ')}</strong>.</p>` : ''}
     </section>
     ${target ? '' : `<div class="toolbar"><select class="search" id="hireRole" aria-label="Profissão" style="max-width:340px"><option value="">Todas as profissões</option>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${ui.hireRole===k ? 'selected' : ''}>${r.n}${need.includes(k+'@'+tCity) ? ' · tens vaga' : ''}</option>`).join('')}</select></div>`}
@@ -2875,7 +2913,10 @@ document.addEventListener('click', e=>{
   if(d.amt){ ui.amount = +d.amt; ui.stamp = null; renderView(); return; }
   if(d.bizf){ ui.bizf = d.bizf; ui.hireFor = null; renderView(); return; }
   if(d.hirefor !== undefined){ ui.hireFor = d.hirefor || null; ui.bizf = 'recrutar'; if(ui.hireFor) ensureCandidates(BIZ_BY[ui.hireFor].role, S.biz[ui.hireFor].city||'lisboa'); ui.tab = 'negocios'; renderView(); window.scrollTo({top:0}); return; }
-  if(d.hire){ hire(+d.hire, d.biz); act(); return; }
+  if(d.hire){ hire(+d.hire, d.biz, d.kind || 'efetivo'); act(); return; }
+  if(d.contract){ ui.contract = d.contract; renderView(); return; }
+  if(d.perm){ const [k, u] = d.perm.split('|'); makePermanent(k, +u); act(); return; }
+  if(d.norenew){ const [k, u] = d.norenew.split('|'); toggleRenew(k, +u); act(); return; }
   if(d.work){ workHere(d.work); act(); return; }
   if(d.vehrepair){ vehRepair(+d.vehrepair); act(); return; }
   if(d.vehservice){ vehService(+d.vehservice); act(); return; }
