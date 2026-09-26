@@ -761,11 +761,12 @@ const PRODUCTS = [
    req:()=>null,
    blurb:'Sem garantias. O limite depende do teu score, rendimentos e prestígio.'},
   {id:'empresa', bank:'Caixa do Norte', logo:'CN', col:'#0F6B4F', name:'Crédito Empresarial', terms:[24,48,84,120], minScore:580,
-   rate:()=>S.euribor + 2.5 + (850-S.score)/80,
-   cap:()=>bizTotalValue()*0.8 + Math.max(0, bizMonthly()-staffCost())*12,
-   req:()=>Object.keys(S.biz).length ? null : 'Para o primeiro negócio, usa "Comprar com crédito empresarial" em Negócios.',
+   // Sem empresas é uma linha de apoio a quem começa: avaliada por ti, com taxa mais alta e limite de 50 000 €
+   rate:()=>S.euribor + 2.5 + (850-S.score)/80 + (hasBiz() ? 0 : 1.5),
+   cap:()=>hasBiz() ? bizTotalValue()*0.8 + Math.max(0, bizMonthly()-staffCost())*12 : Math.min(50000, Math.max(0, (S.score-520)*200) + jobSalary()*12),
+   req:()=>null,
    business:true,
-   blurb:'Analisado pelas contas das tuas empresas, não pelo teu salário. As prestações podem ir até 70% do lucro dos negócios. Para comprar um negócio novo, financia 70%.'},
+   blurb:'Com empresas, é analisado pelas contas delas: prestações até 70% do lucro dos negócios. Sem empresas, é um apoio a quem começa (até 50 000 €), analisado pelo teu salário.'},
   {id:'lombard', bank:'Tejo Private', logo:'TP', col:'#5B4A9E', name:'Crédito Lombard', terms:[12,24,36,60], minScore:600,
    rate:()=>S.euribor + 1.8 + (850-S.score)/120,
    cap:()=>stocksValue()*0.5,
@@ -1088,10 +1089,11 @@ function prodReason(p){
   if(!p.shark && S.loans.some(L=>!PROD_BY[L.pid].shark && L.missed>0)) return 'Tens prestações em atraso noutro banco.';
   return null;
 }
+function hasBiz(){ return Object.keys(S.biz).length > 0; }
 function maxFor(p, term){
   if(prodReason(p)) return 0;
   let avail = p.cap() - outstanding(p.id);
-  if(p.business){
+  if(p.business && hasBiz()){
     // O banco olha para a capacidade das empresas: prestações empresariais até 70% do lucro dos negócios
     const room = 0.7*Math.max(0, bizMonthly()-staffCost()) - S.loans.filter(L=>L.pid==='empresa').reduce((t,L)=>t+L.pay,0);
     if(room <= 0) return 0;
