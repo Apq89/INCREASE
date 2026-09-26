@@ -1,6 +1,6 @@
 // Service worker: permite instalar a app e abrir o jogo sem internet.
 // Quando mudares os ficheiros, sobe a versão para os jogadores receberem a nova.
-const CACHE = 'increase-v4';
+const CACHE = 'increase-v5';
 const ASSETS = ['./', './index.html', './config.js', './cloud.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e=>{
