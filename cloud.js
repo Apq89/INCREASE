@@ -138,7 +138,7 @@
       try{
         if(mode==='login'){
           const { data, error } = await sb.auth.signInWithPassword({email:f.email, password:f.password});
-          if(error) return showAuth('login', error.message.includes('Invalid') ? 'Email ou palavra-passe errados.' : error.message, 'bad');
+          if(error) return showAuth('login', explain(error), 'bad');
           await enter(data.user);
         } else if(mode==='signup'){
           const name = (f.username || '').trim();
@@ -146,7 +146,9 @@
           const taken = await sb.from('profiles').select('id').eq('username', name).maybeSingle();
           if(taken.data) return showAuth('signup', 'Esse nome de jogador já existe. Escolhe outro.', 'bad');
           const { data, error } = await sb.auth.signUp({email:f.email, password:f.password, options:{data:{username:name}, emailRedirectTo:location.origin + location.pathname}});
-          if(error) return showAuth('signup', error.message, 'bad');
+          if(error) return showAuth('signup', explain(error), 'bad');
+          // Email já registado: o Supabase devolve um utilizador sem identidades
+          if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) return showAuth('login', 'Esse email já tem conta. Entra com a tua palavra-passe.', 'bad');
           if(data.session) await enter(data.user);
           else showAuth('login', 'Conta criada. Enviámos-te um email: confirma o endereço e depois entra aqui.', 'good');
         } else if(mode==='reset'){
@@ -160,6 +162,18 @@
       } finally { btn.disabled = false; }
     };
     setTimeout(()=>{ const i = form.querySelector('input'); if(i) i.focus(); }, 0);
+  }
+  // Mensagens do Supabase em português, com o que fazer a seguir
+  function explain(error){
+    const m = (error && error.message) || '';
+    if(/Invalid login credentials/i.test(m)) return 'Email ou palavra-passe errados.';
+    if(/Email not confirmed/i.test(m)) return 'Esta conta ainda não foi confirmada. Abre o email de confirmação que recebeste; se não chegou, pede ao administrador do jogo para te confirmar a conta.';
+    if(/rate limit/i.test(m)) return 'Foram enviados demasiados emails na última hora. Tenta de novo mais tarde.';
+    if(/already registered|already exists/i.test(m)) return 'Esse email já tem conta. Entra com a tua palavra-passe.';
+    if(/Password should be/i.test(m)) return 'A palavra-passe tem de ter pelo menos 6 caracteres.';
+    if(/Database error saving new user/i.test(m)) return 'Não foi possível criar a conta. Experimenta outro nome de jogador.';
+    if(/sending.*email|confirmation email/i.test(m)) return 'Não foi possível enviar o email de confirmação. Pede ao administrador do jogo para desligar a confirmação por email.';
+    return m || 'Algo correu mal. Tenta de novo.';
   }
   function hideAuth(){ if(authEl){ authEl.remove(); authEl = null; } }
 })();
