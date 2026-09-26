@@ -5,5 +5,5 @@
 // Se deixares vazio, o jogo funciona sem contas (cada jogador grava no próprio browser).
 window.INCREASE_CONFIG = {
   supabaseUrl: 'https://lnkvhzapwbfhwezstcru.supabase.co',
-  supabaseAnonKey: '',  // ex.: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+  supabaseAnonKey: 'sb_publishable_34e-2MRPeIYv17_i1laf8Q_9KKtLAO3',
 };
