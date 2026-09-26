@@ -4,6 +4,6 @@
 // quem protege os dados são as regras (RLS) do ficheiro supabase/schema.sql.
 // Se deixares vazio, o jogo funciona sem contas (cada jogador grava no próprio browser).
 window.INCREASE_CONFIG = {
-  supabaseUrl: '',      // ex.: 'https://abcdefghijklmnop.supabase.co'
+  supabaseUrl: 'https://lnkvhzapwbfhwezstcru.supabase.co',
   supabaseAnonKey: '',  // ex.: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
 };
