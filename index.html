@@ -383,13 +383,6 @@ img{max-width:100%}
     <div class="clock">
       <button class="citybtn" id="cityBtn" data-cityopen aria-label="Escolher cidade"></button>
       <span class="date"><span id="date"></span><span class="dayprog" aria-hidden="true"><span id="dayBar"></span></span></span>
-      <span class="lbl">Tempo</span>
-      <div class="speed" role="group" aria-label="Velocidade do tempo">
-        <button data-speed="0" aria-label="Pausa">❚❚</button>
-        <button data-speed="1" title="1 mês por hora">1×</button>
-        <button data-speed="6" title="1 mês a cada 10 minutos">6×</button>
-        <button data-speed="60" title="1 mês por minuto">60×</button>
-      </div>
       <span class="speedhint" id="speedHint"></span>
     </div>
   </header>
@@ -877,13 +870,13 @@ function migrate(s){
   for(const id in s.biz) s.biz[id].staff = s.biz[id].staff || [];
   s.veh = s.veh || [];
   s.cars = s.cars || [];
-  if(!SPEEDS.includes(s.speed)) s.speed = 1;
+  if(s.cityChosen && !s.over) { s.speed = 1; s.started = true; }
   s.mk = initMarkets(s.mk || {});
   s.hold = s.hold || {};
   return s;
 }
 const DAY_RATE = 30/3600; // velocidade 1×: 30 dias de jogo por hora real (1 dia = 2 minutos)
-const SPEEDS = [0,1,6,60];
+const SPEEDS = [1]; // o tempo corre sempre a 1 mês por hora
 function save(){ S.seen = Date.now(); try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){} }
 function load(){ try{ const t = localStorage.getItem(SAVE_KEY); return t ? migrate(JSON.parse(t)) : null; }catch(e){ return null; } }
 
@@ -2137,7 +2130,7 @@ function refreshHeader(){
   $('sDebt').textContent = eurC(debt());
   const next = S.loans.slice().sort((a,b)=>a.due-b.due)[0];
   $('sNext').textContent = next ? `próxima: ${eur(next.pay)} em ${next.due-S.day} d${realTime(next.due-S.day-acc)}` : 'sem créditos ativos';
-  $('speedHint').textContent = ({0:'Pausado', 1:'1 mês por hora · 1 dia = 2 min', 6:'1 mês a cada 10 min', 60:'1 mês por minuto'})[S.speed] || '';
+  $('speedHint').textContent = S.started ? '⏱ 1 mês por hora · 1 dia = 2 min' : '⏱ O tempo começa quando escolheres a cidade';
   const nw = netWorth(), n = $('sNw'); n.textContent = eurC(nw); n.className = 'v ' + (nw<0?'neg':'');
   $('sTitle').textContent = TITLES[titleIdx(nw)].name;
   const f = monthlyFlow(), fl = $('sFlow'); fl.textContent = (f>0?'+':'') + eurC(f); fl.className = 'v ' + sgn(f);
@@ -2246,7 +2239,7 @@ function vInicio(){
       <li>Investe em <strong>negócios</strong>, <strong>imóveis</strong>, <strong>ações</strong> ou <strong>cripto</strong>. Ganhas se renderem mais do que pagas de juros.</li>
       <li>Pagar a tempo sobe o <strong>score</strong> ${help('score')}, e isso dá créditos maiores e mais baratos.</li>
       <li>Três prestações falhadas num banco levam à penhora dos teus bens. O objetivo é chegar a mil milhões.</li>
-      <li>O tempo corre a <strong>1 mês por hora</strong> (1 dia = 2 minutos) e continua enquanto estás fora, até 1 ano. Usa <strong>6×</strong> ou <strong>60×</strong> para acelerar e ❚❚ para pausar.</li></ol></section>` : ''}
+      <li>O tempo corre a <strong>1 mês por hora</strong> (1 dia = 2 minutos) e continua enquanto estás fora, até 1 ano. Não há pausa: o tempo corre sempre.</li></ol></section>` : ''}
   </div>`;
 }
 function boostChips(){
@@ -2896,7 +2889,7 @@ document.addEventListener('click', e=>{
   if(d.citysort){ ui.citySort = d.citysort; renderSheet(); return; }
   if(d.browse){ S.browse = d.browse; ui.sheet = null; ui.hireFor = null; act(); toast(`A ver preços de ${CITY_BY[d.browse].name}.`, '', CITY_BY[d.browse].flag); return; }
   if(d.move){ moveCity(d.move, false); ui.sheet = null; act(); return; }
-  if(d.startcity){ S.city = S.browse = d.startcity; S.cityChosen = true; ui.sheet = null; log(`Começaste a vida em ${CITY_BY[d.startcity].name}: salário médio de ${eur(salaryNow())} e um quarto por ${eur(housingCost())}/mês.`, null, 'good'); act(); return; }
+  if(d.startcity){ S.city = S.browse = d.startcity; S.cityChosen = true; S.started = true; S.speed = 1; ui.sheet = null; log(`Começaste a vida em ${CITY_BY[d.startcity].name}: salário médio de ${eur(salaryNow())} e um quarto por ${eur(housingCost())}/mês.`, null, 'good'); act(); return; }
   if(d.luxf){ ui.luxf = d.luxf; renderView(); return; }
   if(d.carfuel !== undefined){ ui.carFuel = d.carfuel; ui.carN = 24; renderView(); return; }
   if(d.usedfuel !== undefined){ ui.usedFuel = d.usedfuel; renderView(); return; }
