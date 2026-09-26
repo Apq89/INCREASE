@@ -1,0 +1,9 @@
+// Liga o jogo ao teu projeto Supabase (contas, jogos gravados na nuvem e ranking).
+// Encontras estes dois valores no Supabase em: Project Settings → API.
+// A chave "anon public" é pública por natureza e pode ir para o GitHub;
+// quem protege os dados são as regras (RLS) do ficheiro supabase/schema.sql.
+// Se deixares vazio, o jogo funciona sem contas (cada jogador grava no próprio browser).
+window.INCREASE_CONFIG = {
+  supabaseUrl: '',      // ex.: 'https://abcdefghijklmnop.supabase.co'
+  supabaseAnonKey: '',  // ex.: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+};
